@@ -28,24 +28,29 @@ send() { # send <title> <message> <sound>
   fi
 }
 list_sounds() { ls /System/Library/Sounds/ 2>/dev/null | sed 's/\.aiff$//'; }
+sound_file() { # name|path -> file path
+  case "$1" in
+    */*)                printf '%s' "$1" ;;
+    *.aiff|*.wav|*.m4a) printf '/System/Library/Sounds/%s' "$1" ;;
+    *)                  printf '/System/Library/Sounds/%s.aiff' "$1" ;;
+  esac
+}
+# Audition uses afplay (instant, no notification throttling — macOS coalesces
+# rapid repeat banners, which silences quick back-to-back notification tests).
+preview() { local f; f="$(sound_file "$1")"; [ -f "$f" ] && afplay "$f" 2>/dev/null; }
 
 case "${1:-}" in
   sounds|--sounds|--list)
-    echo "Auditioning system sounds via $(backend)…"
-    echo "Each banner names its sound. Set your pick with:  set -g @agent_status_sound <Name>"
+    echo "Auditioning system sounds with afplay (you'll hear each)…"
+    for s in $(list_sounds); do printf '  ♪ %-10s' "$s"; preview "$s"; echo; done
     echo
-    for s in $(list_sounds); do
-      echo "  ♪ $s"
-      send "🤖 sound: $s" "set -g @agent_status_sound $s" "$s"
-      sleep 2
-    done
-    echo
+    echo "Set your pick with:  set -g @agent_status_sound <Name>   (then reload tmux)"
     echo "Currently configured: $CONFIGURED"
     exit 0
     ;;
   ?*)
-    echo "Firing one test notification with sound: $1  (via $(backend))"
-    send "🤖 tmux-agent-status" "testing sound \"$1\"" "$1"
+    echo "Previewing sound: $1"
+    preview "$1" || echo "  (couldn't play $(sound_file "$1"))"
     echo "Like it? Set it with:  set -g @agent_status_sound $1   (then reload tmux)"
     exit 0
     ;;
