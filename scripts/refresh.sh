@@ -75,26 +75,27 @@ icon_for() {
 # --- Notifications (macOS) ---------------------------------------------------
 should_notify() { case " $NOTIFY " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
-# Sound via afplay (does NOT need notification permissions, unlike osascript).
-# @agent_status_sound accepts a system sound name ("Glass"), a filename, or a
-# full path; empty = silent.
-play_sound() {
-  [ -n "$SOUND" ] || return 0
-  local f="$SOUND"
-  case "$SOUND" in
-    */*) ;;                                          # full path
-    *.aiff|*.wav|*.m4a) f="/System/Library/Sounds/$SOUND" ;;
-    *) f="/System/Library/Sounds/$SOUND.aiff" ;;     # bare name like "Glass"
-  esac
-  [ -f "$f" ] && afplay "$f" >/dev/null 2>&1 &
-}
+# Notify + play a sound. Delivery is by the notification system in your GUI
+# session (not this process), so the sound works even when tmux's server has no
+# audio session (where `afplay` fails with "AudioQueueStart").
+#
+# Prefers terminal-notifier if installed — it has its own notification identity
+# and permission, far more reliable than osascript (which posts as "Script
+# Editor" and is silently dropped if that host isn't allowed). Falls back to
+# osascript. @agent_status_sound is a Notification Center sound name (e.g.
+# "Glass", "Ping"); empty = silent banner.
 notify() { # notify <title> <message>
   local title msg
   title="$(printf '%s' "$1" | tr -d '"\\')"
   msg="$(printf '%s' "$2" | tr -d '"\\')"
   printf '%s  %s | %s\n' "$(date '+%H:%M:%S')" "$title" "$msg" >> "$CACHE_DIR/notify.log" 2>/dev/null
-  play_sound
-  osascript -e "display notification \"$msg\" with title \"$title\"" >/dev/null 2>&1 &
+  if command -v terminal-notifier >/dev/null 2>&1; then
+    terminal-notifier -title "$title" -message "$msg" ${SOUND:+-sound "$SOUND"} >/dev/null 2>&1 &
+  else
+    local sound_clause=""
+    [ -n "$SOUND" ] && sound_clause=" sound name \"$SOUND\""
+    osascript -e "display notification \"$msg\" with title \"$title\"$sound_clause" >/dev/null 2>&1 &
+  fi
 }
 
 # Cache columns: "<pane_id> <display_state> <raw_state>"
@@ -193,16 +194,21 @@ while read -r window_id window_active session_attached session_name window_index
   if [ -n "$chosen" ]; then
     icon="$(icon_for "$chosen")"
     label="$(status_label "$best_state")"
+    # @agent_status      = icon + label (used by the chooser)
+    # @agent_status_text = label only   (used by the status bar when icon hidden)
     if [ -n "$label" ]; then
       tmux set-option -w -t "$window_id" @agent_status "$icon ($label) "
+      tmux set-option -w -t "$window_id" @agent_status_text "($label) "
       tmux set-option -w -t "$window_id" @agent_status_state "$best_state"
     else
       tmux set-option -w -t "$window_id" @agent_status "$icon "
+      tmux set-option -wu -t "$window_id" @agent_status_text 2>/dev/null
       tmux set-option -wu -t "$window_id" @agent_status_state 2>/dev/null
     fi
     rename_present "$window_id" "$chosen"
   else
     tmux set-option -wu -t "$window_id" @agent_status 2>/dev/null
+    tmux set-option -wu -t "$window_id" @agent_status_text 2>/dev/null
     tmux set-option -wu -t "$window_id" @agent_status_state 2>/dev/null
     rename_absent "$window_id"
   fi

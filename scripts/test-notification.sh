@@ -1,66 +1,65 @@
 #!/usr/bin/env bash
 # test-notification.sh — diagnose agent-status sound & notifications.
 #
-# Run this DIRECTLY in your terminal (so it shares your audio session):
+# Run it in your terminal:
 #   ~/Projects/tmux-agent-status/scripts/test-notification.sh
 set -u
 
 tmux_opt() { tmux show-option -gqv "$1" 2>/dev/null; }
 SOUND="$(tmux_opt @agent_status_sound)"; [ -n "$SOUND" ] || SOUND="Glass"
 
-# Same mapping as refresh.sh's play_sound().
-resolve_sound() {
-  case "$1" in
-    "")                  return 1 ;;
-    */*)                 printf '%s' "$1" ;;
-    *.aiff|*.wav|*.m4a)  printf '/System/Library/Sounds/%s' "$1" ;;
-    *)                   printf '/System/Library/Sounds/%s.aiff' "$1" ;;
-  esac
-}
-F="$(resolve_sound "$SOUND")"
-
 echo "tmux-agent-status — notification test"
 echo "====================================="
 echo "Configured @agent_status_sound : ${SOUND}"
-echo "Resolved sound file            : ${F:-<silent>}"
 echo
 
-echo "[1/4] System output volume / mute"
-osascript -e 'set s to get volume settings' \
-          -e 'return "  output volume=" & (output volume of s) & "  muted=" & (output muted of s)' \
-  2>/dev/null || echo "  (could not read volume)"
-echo
-
-echo "[2/4] Playing the sound with afplay — you should HEAR this now…"
-if [ -n "$F" ] && [ -f "$F" ]; then
-  if afplay "$F"; then echo "  afplay: ok"; else echo "  afplay: FAILED (exit $?)"; fi
+# This mirrors EXACTLY what the daemon's notify() does.
+echo "[1/3] Notification banner + sound (the real path the daemon uses)…"
+if command -v terminal-notifier >/dev/null 2>&1; then
+  echo "      using terminal-notifier (good — reliable identity & permission)"
+  echo "      → You should SEE a banner and HEAR \"${SOUND}\"."
+  terminal-notifier -title "🤖 tmux-agent-status test" -message "agent finished" -sound "${SOUND}" \
+    && echo "      terminal-notifier returned ok"
 else
-  echo "  sound file not found: ${F:-<none>}"
-  echo "  available system sounds (use any with: set -g @agent_status_sound <name>):"
-  ls /System/Library/Sounds/ 2>/dev/null | sed 's/\.aiff$//;s/^/    /'
+  echo "      using osascript (terminal-notifier NOT installed)"
+  echo "      → You should SEE a banner and HEAR \"${SOUND}\" — IF notifications are allowed."
+  echo "      NOTE: osascript returns ok even when the banner is blocked/suppressed."
+  osascript -e "display notification \"agent finished\" with title \"🤖 tmux-agent-status test\" sound name \"${SOUND}\"" \
+    && echo "      osascript returned ok"
 fi
 echo
 
-echo "[3/4] Firing a notification banner via osascript…"
-if osascript -e "display notification \"banners work\" with title \"🤖 tmux-agent-status test\""; then
-  echo "  osascript: ok (look top-right of your screen)"
+# afplay only works when the process has an audio session. Under tmux the server
+# often has none (afplay fails with 'AudioQueueStart'); that's expected and is
+# why the daemon does NOT rely on afplay.
+echo "[2/3] Direct afplay (informational; expected to FAIL inside tmux)…"
+F="/System/Library/Sounds/${SOUND}.aiff"; [ -f "$F" ] || F="/System/Library/Sounds/Glass.aiff"
+if afplay "$F" 2>/dev/null; then
+  echo "      afplay ok — this process has an audio session"
+else
+  echo "      afplay failed — no audio session here (normal under tmux; Notification Center above is what matters)"
 fi
 echo
 
-echo "[4/4] Recent notifications fired by the daemon (if any)"
+echo "[3/3] Recent notifications fired by the daemon (if any)"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/tmux-agent-status/notify.log"
 if [ -f "$LOG" ]; then tail -5 "$LOG" | sed 's/^/  /'; else echo "  (no notify.log yet — nothing has fired)"; fi
 echo
 
 cat <<'TIPS'
-Troubleshooting
----------------
-• Heard it here but NOT from agents? The tmux server likely started without an
-  audio session. Restart it:  tmux kill-server   (then reopen tmux).
-• No sound here either? Unmute / raise volume; confirm the resolved file exists,
-  or pick another:  set -g @agent_status_sound Ping
-• No banner? System Settings → Notifications → "Script Editor" → Allow
-  Notifications (osascript banners post as Script Editor). Also turn off any
-  Focus / Do Not Disturb.
-• Custom sound: point @agent_status_sound at any .aiff/.wav path.
+If you got NO banner and NO sound in step [1]
+---------------------------------------------
+Notifications are blocked for the scripting host. Fix:
+  System Settings → Notifications → find "Script Editor" (it appears after the
+  first attempt above) → turn ON Allow Notifications, and set the alert style.
+  Also disable Focus / Do Not Disturb.
+
+Banner shows but NO sound?
+  • Unmute / raise system volume.
+  • Make sure "Play sound for notifications" is enabled for that app.
+  • Try another sound:  set -g @agent_status_sound Ping   (then reload tmux)
+
+Prefer a dedicated notifier?
+  brew install terminal-notifier   — more reliable identity/permissions than
+  osascript. (Tell me and I'll switch the plugin to use it if present.)
 TIPS

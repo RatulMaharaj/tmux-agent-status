@@ -47,31 +47,45 @@ A small background poller (`scripts/daemon.sh`) re-scans every few seconds, so:
 - the **status bar** shows a live colored badge on every window (no need to open
   the chooser) — the badge is appended to your `window-status-format`, preserving
   your existing theme;
-- you get a **system notification** (macOS) when an agent **finishes while you're
-  on another window** (working → done) or **becomes blocked** waiting on you.
-  Nothing fires while you're watching the window finish.
+- you get a **system notification** (macOS) when an agent **finishes**
+  (working → stopped) or **becomes blocked** waiting on you — wherever you're
+  looking.
 
 The poller is single-instance (a reload cleanly replaces it) and exits when the
 tmux server stops.
 
 ```tmux
-set -g @agent_status_interval 3              # poll seconds (default 3)
-set -g @agent_status_poll      on            # off to disable the poller
-set -g @agent_status_statusbar on            # off to keep badges out of the status bar
-set -g @agent_status_notify    "done blocked"  # states that notify; "" to silence
-set -g @agent_status_sound     Glass         # macOS sound name; "" for silent banner
+set -g @agent_status_interval       3              # poll seconds (default 3)
+set -g @agent_status_poll           on             # off to disable the poller
+set -g @agent_status_statusbar      on             # off to keep badges out of the status bar
+set -g @agent_status_statusbar_icon on             # off = status bar shows the label only (no icon)
+set -g @agent_status_notify         "done blocked" # states that notify; "" to silence
+set -g @agent_status_sound          Glass          # Notification Center sound name; "" for silent
 ```
 
-Not hearing anything? Run the diagnostic **directly in your terminal** (so it
-shares your audio session) — it plays the sound, fires a test banner, checks
-volume, and shows recently-fired notifications:
+Notifications and their sound are delivered by your GUI session, so the sound
+plays even from inside tmux. The plugin prefers
+[`terminal-notifier`](https://github.com/julienXX/terminal-notifier) if it's
+installed (most reliable — its own notification identity and permission):
+
+```sh
+brew install terminal-notifier
+```
+
+Without it, it falls back to `osascript`, whose notifications post as "Script
+Editor" and are **silently dropped if that host isn't allowed** in System
+Settings. If you hear/see nothing, run `scripts/test-notification.sh` (below).
+
+Not hearing anything? Run the diagnostic — it fires the real Notification
+Center banner + sound, and shows recently-fired notifications:
 
 ```sh
 ~/Projects/tmux-agent-status/scripts/test-notification.sh
 ```
 
-If you hear it there but not from agents, the tmux server started without an
-audio session — `tmux kill-server` and reopen.
+If you get no banner/sound, notifications are blocked for the scripting host:
+**System Settings → Notifications → "Script Editor" → Allow Notifications**
+(it appears there after the first attempt), and disable Focus / Do Not Disturb.
 
 ## How detection works
 
