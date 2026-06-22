@@ -1,65 +1,85 @@
 #!/usr/bin/env bash
-# test-notification.sh — diagnose agent-status sound & notifications.
+# test-notification.sh — the canonical way to test agent-status notifications.
+# Uses the SAME delivery as the daemon's notify(): terminal-notifier if present,
+# else osascript; the sound is played by the notification system (works from
+# inside tmux, where afplay often can't).
 #
-# Run it in your terminal:
-#   ~/Projects/tmux-agent-status/scripts/test-notification.sh
+# Usage:
+#   test-notification.sh            # full diagnostic, using your configured sound
+#   test-notification.sh <Sound>    # fire one test notification with <Sound> (e.g. Ping)
+#   test-notification.sh sounds     # audition every system sound, one banner each
 set -u
 
 tmux_opt() { tmux show-option -gqv "$1" 2>/dev/null; }
-SOUND="$(tmux_opt @agent_status_sound)"; [ -n "$SOUND" ] || SOUND="Glass"
+CONFIGURED="$(tmux_opt @agent_status_sound)"; [ -n "$CONFIGURED" ] || CONFIGURED="Glass"
+backend() { command -v terminal-notifier >/dev/null 2>&1 && echo terminal-notifier || echo osascript; }
 
+# THE delivery path (identical to refresh.sh notify()).
+send() { # send <title> <message> <sound>
+  local title msg sound
+  title="$(printf '%s' "$1" | tr -d '"\\')"
+  msg="$(printf '%s' "$2" | tr -d '"\\')"
+  sound="$3"
+  if command -v terminal-notifier >/dev/null 2>&1; then
+    terminal-notifier -title "$title" -message "$msg" ${sound:+-sound "$sound"} >/dev/null 2>&1
+  else
+    local sc=""; [ -n "$sound" ] && sc=" sound name \"$sound\""
+    osascript -e "display notification \"$msg\" with title \"$title\"$sc" >/dev/null 2>&1
+  fi
+}
+list_sounds() { ls /System/Library/Sounds/ 2>/dev/null | sed 's/\.aiff$//'; }
+
+case "${1:-}" in
+  sounds|--sounds|--list)
+    echo "Auditioning system sounds via $(backend)…"
+    echo "Each banner names its sound. Set your pick with:  set -g @agent_status_sound <Name>"
+    echo
+    for s in $(list_sounds); do
+      echo "  ♪ $s"
+      send "🤖 sound: $s" "set -g @agent_status_sound $s" "$s"
+      sleep 2
+    done
+    echo
+    echo "Currently configured: $CONFIGURED"
+    exit 0
+    ;;
+  ?*)
+    echo "Firing one test notification with sound: $1  (via $(backend))"
+    send "🤖 tmux-agent-status" "testing sound \"$1\"" "$1"
+    echo "Like it? Set it with:  set -g @agent_status_sound $1   (then reload tmux)"
+    exit 0
+    ;;
+esac
+
+# --- no args: full diagnostic -----------------------------------------------
 echo "tmux-agent-status — notification test"
 echo "====================================="
-echo "Configured @agent_status_sound : ${SOUND}"
+echo "Backend            : $(backend)"
+echo "Configured sound   : $CONFIGURED"
 echo
 
-# This mirrors EXACTLY what the daemon's notify() does.
-echo "[1/3] Notification banner + sound (the real path the daemon uses)…"
-if command -v terminal-notifier >/dev/null 2>&1; then
-  echo "      using terminal-notifier (good — reliable identity & permission)"
-  echo "      → You should SEE a banner and HEAR \"${SOUND}\"."
-  terminal-notifier -title "🤖 tmux-agent-status test" -message "agent finished" -sound "${SOUND}" \
-    && echo "      terminal-notifier returned ok"
-else
-  echo "      using osascript (terminal-notifier NOT installed)"
-  echo "      → You should SEE a banner and HEAR \"${SOUND}\" — IF notifications are allowed."
-  echo "      NOTE: osascript returns ok even when the banner is blocked/suppressed."
-  osascript -e "display notification \"agent finished\" with title \"🤖 tmux-agent-status test\" sound name \"${SOUND}\"" \
-    && echo "      osascript returned ok"
-fi
+echo "[1/3] Fire a banner + sound (the real path the daemon uses)…"
+echo "      → You should SEE a banner and HEAR \"$CONFIGURED\"."
+send "🤖 tmux-agent-status test" "agent finished" "$CONFIGURED" && echo "      sent ok"
 echo
 
-# afplay only works when the process has an audio session. Under tmux the server
-# often has none (afplay fails with 'AudioQueueStart'); that's expected and is
-# why the daemon does NOT rely on afplay.
-echo "[2/3] Direct afplay (informational; expected to FAIL inside tmux)…"
-F="/System/Library/Sounds/${SOUND}.aiff"; [ -f "$F" ] || F="/System/Library/Sounds/Glass.aiff"
-if afplay "$F" 2>/dev/null; then
-  echo "      afplay ok — this process has an audio session"
-else
-  echo "      afplay failed — no audio session here (normal under tmux; Notification Center above is what matters)"
-fi
+echo "[2/3] Direct afplay (informational — only works with an audio session)…"
+F="/System/Library/Sounds/${CONFIGURED}.aiff"; [ -f "$F" ] || F="/System/Library/Sounds/Glass.aiff"
+if afplay "$F" 2>/dev/null; then echo "      afplay ok"; else echo "      afplay failed (normal inside tmux; not what the daemon relies on)"; fi
 echo
 
 echo "[3/3] Recent notifications fired by the daemon (if any)"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/tmux-agent-status/notify.log"
-if [ -f "$LOG" ]; then tail -5 "$LOG" | sed 's/^/  /'; else echo "  (no notify.log yet — nothing has fired)"; fi
+if [ -f "$LOG" ]; then tail -5 "$LOG" | sed 's/^/  /'; else echo "  (none yet)"; fi
 echo
 
 cat <<'TIPS'
-If you got NO banner and NO sound in step [1]
----------------------------------------------
-Notifications are blocked for the scripting host. Fix:
-  System Settings → Notifications → find "Script Editor" (it appears after the
-  first attempt above) → turn ON Allow Notifications, and set the alert style.
-  Also disable Focus / Do Not Disturb.
+Try other sounds:  test-notification.sh sounds   (or: test-notification.sh Ping)
 
-Banner shows but NO sound?
-  • Unmute / raise system volume.
-  • Make sure "Play sound for notifications" is enabled for that app.
-  • Try another sound:  set -g @agent_status_sound Ping   (then reload tmux)
-
-Prefer a dedicated notifier?
-  brew install terminal-notifier   — more reliable identity/permissions than
-  osascript. (Tell me and I'll switch the plugin to use it if present.)
+No banner?
+  • Sound plays but no banner → alert style is off. System Settings →
+    Notifications → terminal-notifier → set Alert style to Banners/Alerts.
+  • Nothing at all → turn ON Allow Notifications for terminal-notifier, and
+    disable Focus / Do Not Disturb.
+No sound? Unmute / raise volume, or pick another:  test-notification.sh sounds
 TIPS
