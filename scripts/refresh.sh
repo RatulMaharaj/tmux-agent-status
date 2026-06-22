@@ -74,29 +74,41 @@ icon_for() {
 
 # --- Notifications (macOS) ---------------------------------------------------
 should_notify() { case " $NOTIFY " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# Sound via afplay (does NOT need notification permissions, unlike osascript).
+# @agent_status_sound accepts a system sound name ("Glass"), a filename, or a
+# full path; empty = silent.
+play_sound() {
+  [ -n "$SOUND" ] || return 0
+  local f="$SOUND"
+  case "$SOUND" in
+    */*) ;;                                          # full path
+    *.aiff|*.wav|*.m4a) f="/System/Library/Sounds/$SOUND" ;;
+    *) f="/System/Library/Sounds/$SOUND.aiff" ;;     # bare name like "Glass"
+  esac
+  [ -f "$f" ] && afplay "$f" >/dev/null 2>&1 &
+}
 notify() { # notify <title> <message>
   local title msg
   title="$(printf '%s' "$1" | tr -d '"\\')"
   msg="$(printf '%s' "$2" | tr -d '"\\')"
-  if [ -n "$SOUND" ]; then
-    osascript -e "display notification \"$msg\" with title \"$title\" sound name \"$SOUND\"" >/dev/null 2>&1 &
-  else
-    osascript -e "display notification \"$msg\" with title \"$title\"" >/dev/null 2>&1 &
-  fi
+  printf '%s  %s | %s\n' "$(date '+%H:%M:%S')" "$title" "$msg" >> "$CACHE_DIR/notify.log" 2>/dev/null
+  play_sound
+  osascript -e "display notification \"$msg\" with title \"$title\"" >/dev/null 2>&1 &
 }
 
-prev_state() { # prev_state <pane_id>
-  [ -f "$CACHE" ] || return 0
-  awk -v p="$1" '$1==p {print $2; exit}' "$CACHE"
-}
-# display_state <raw> <prev> <window_active>
+# Cache columns: "<pane_id> <display_state> <raw_state>"
+prev_disp() { [ -f "$CACHE" ] && awk -v p="$1" '$1==p {print $2; exit}' "$CACHE"; }
+prev_raw()  { [ -f "$CACHE" ] && awk -v p="$1" '$1==p {print $3; exit}' "$CACHE"; }
+
+# display_state <raw> <prev_disp> <seen>   (seen = window visible on an attached client)
 display_state() {
-  local raw="$1" prev="$2" active="$3"
+  local raw="$1" prev="$2" seen="$3"
   case "$raw" in
     working) echo working ;;
     blocked) echo blocked ;;
     unknown) echo unknown ;;
-    *) if [ "$active" = "1" ]; then echo idle
+    *) if [ "$seen" = "1" ]; then echo idle
        elif [ "$prev" = "working" ] || [ "$prev" = "done" ]; then echo done
        else echo idle; fi ;;
   esac
@@ -134,9 +146,15 @@ rename_absent() { # rename_absent <window_id>
 }
 
 # --- Scan every window, aggregating over its panes ---------------------------
-tmux list-windows -a -F '#{window_id} #{window_active} #{session_name} #{window_index} #{window_name}' |
-while read -r window_id window_active session_name window_index window_name; do
+# "seen" = the window is the active window of an ATTACHED session (i.e. actually
+# on screen). Notifications, however, do NOT depend on this — they fire on the
+# raw working->stopped / ->blocked edge regardless of where you're looking.
+tmux list-windows -a -F '#{window_id} #{window_active} #{session_attached} #{session_name} #{window_index} #{window_name}' |
+while read -r window_id window_active session_attached session_name window_index window_name; do
   [ -n "$window_id" ] || continue
+
+  seen=0
+  [ "$window_active" = "1" ] && [ "${session_attached:-0}" -ge 1 ] 2>/dev/null && seen=1
 
   found=" "
   best_state="none"
@@ -148,16 +166,17 @@ while read -r window_id window_active session_name window_index window_name; do
     [ "$agent" = "none" ] && continue
     case "$found" in *" $agent "*) ;; *) found="$found$agent " ;; esac
 
-    prev="$(prev_state "$pane_id")"
+    praw="$(prev_raw "$pane_id")"
+    pdisp="$(prev_disp "$pane_id")"
     raw="$(classify_state "$pane_id" "$agent")"
-    disp="$(display_state "$raw" "$prev" "$window_active")"
-    printf '%s %s\n' "$pane_id" "$disp" >> "$NEW"
+    disp="$(display_state "$raw" "$pdisp" "$seen")"
+    printf '%s %s %s\n' "$pane_id" "$disp" "$raw" >> "$NEW"
 
-    # Fire notifications on the meaningful edges.
+    # Notify on the raw transition — independent of which window you're viewing.
     if [ "$NO_NOTIFY" = 0 ]; then
-      if [ "$disp" = "done" ] && [ "$prev" = "working" ] && should_notify done; then
+      if [ "$raw" = "waiting" ] && [ "$praw" = "working" ] && should_notify done; then
         notify "🤖 $agent finished" "$window_name — $session_name"
-      elif [ "$disp" = "blocked" ] && [ "$prev" != "blocked" ] && should_notify blocked; then
+      elif [ "$raw" = "blocked" ] && [ "$praw" != "blocked" ] && should_notify blocked; then
         notify "🤖 $agent needs you" "$window_name — $session_name"
       fi
     fi

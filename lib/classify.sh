@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# classify.sh — the ONE seam between the plugin pipeline and agent detection.
+# classify.sh — the ONE seam between the plugin pipeline and agent detection:
+# which coding agent (if any) is running in a pane, and what it's doing.
 #
-# Phase 2: detect WHICH coding agent (if any) is running in a pane, by process.
+# The state taxonomy and colours (working / blocked / done / idle) are adapted
+# from herdr (https://github.com/ogulcancelik/herdr), an AGPL project — concept
+# only, no code reused. This file is original MIT-licensed bash.
 #
 # Why look at the tty and not pane_current_command? Claude Code renames its
 # process to its version string (e.g. "2.1.185"), so tmux's #{pane_current_command}

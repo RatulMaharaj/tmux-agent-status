@@ -28,13 +28,17 @@ color; the bracketed label is what gets tinted.)
 | `(done)`    | blue   | done    | finished since you last looked (working → idle)    |
 | `(idle)`    | green  | idle    | at the prompt, and you've seen it                  |
 
-**done → idle** flips automatically once you switch to the window (it becomes
-the active window), so 🔵 highlights "an agent finished while you were away."
-The transition is tracked in a tiny per-pane cache under
-`$XDG_CACHE_HOME/tmux-agent-status/state`.
+**done → idle** flips automatically once you actually view the window (its
+session is attached and the window is active), so `(done)` highlights "an agent
+finished while you were away." The transition is tracked in a tiny per-pane
+cache under `$XDG_CACHE_HOME/tmux-agent-status/state`.
 
 Status detection currently has markers for **Claude Code**. Other agents still
 get a presence badge (their icon, no status label) until markers are added.
+
+> The state taxonomy and colours are adapted from
+> [herdr](https://github.com/ogulcancelik/herdr) (an AGPL project) — concept
+> only, no code is reused. This plugin is original MIT-licensed bash.
 
 ## Realtime updates & notifications
 
@@ -155,10 +159,6 @@ set -g @agent_status_key w     # the prefix key to wrap (default: w)
 - **`scripts/daemon.sh`** — the background poller loop.
 - **`lib/classify.sh`** — `classify_pane()` (which agent) and `classify_state()`
   (what it's doing): the detection seam. Swap these to change detection.
-
-The status taxonomy/colours follow
-[herdr](https://github.com/ogulcancelik/herdr) (no code is used from it — this
-plugin is original MIT bash).
 
 ## Roadmap
 
