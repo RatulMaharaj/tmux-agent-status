@@ -95,23 +95,41 @@ processes on its **tty** (`ps -t <tty>`) and match each process's command
 basename against a configurable agent list, preferring the foreground process.
 This catches agents regardless of how tmux labels the pane.
 
+## Requirements
+
+- tmux 3.x, bash, `ps` (standard on macOS/Linux).
+- Notifications are **macOS** today. Optional but recommended:
+  [`terminal-notifier`](https://github.com/julienXX/terminal-notifier)
+  (`brew install terminal-notifier`) for reliable banners + sound; without it the
+  plugin falls back to `osascript`. (Linux `notify-send` is on the roadmap.)
+
 ## Install
 
-Add one line to `~/.tmux.conf`:
+### Option A — TPM ([Tmux Plugin Manager](https://github.com/tmux-plugins/tpm), recommended)
+
+Add to `~/.tmux.conf`:
 
 ```tmux
-run-shell '~/Projects/tmux-agent-status/agent-status.tmux'
+set -g @plugin 'RatulMaharaj/tmux-agent-status'
 ```
 
-Reload tmux:
+Then press `prefix + I` to fetch and load it. (TPM clones the repo to
+`~/.tmux/plugins/tmux-agent-status` and sources `agent-status.tmux`.)
+
+### Option B — manual clone
 
 ```sh
-tmux source-file ~/.tmux.conf
+git clone https://github.com/RatulMaharaj/tmux-agent-status ~/.tmux/plugins/tmux-agent-status
 ```
 
-Now press `prefix + w` (e.g. `C-a w`). Windows running an agent show an icon.
+Add to `~/.tmux.conf`, then reload with `tmux source-file ~/.tmux.conf`:
 
-(TPM users: this is a standard `*.tmux` plugin and also loads under TPM.)
+```tmux
+run-shell '~/.tmux/plugins/tmux-agent-status/agent-status.tmux'
+```
+
+Now press `prefix + w` (e.g. `C-a w`). Windows running an agent show a badge.
+Put any configuration (below) **before** the `@plugin` / `run-shell` line.
 
 ## Configuration
 
