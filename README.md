@@ -62,6 +62,17 @@ set -g @agent_status_notify    "done blocked"  # states that notify; "" to silen
 set -g @agent_status_sound     Glass         # macOS sound name; "" for silent banner
 ```
 
+Not hearing anything? Run the diagnostic **directly in your terminal** (so it
+shares your audio session) — it plays the sound, fires a test banner, checks
+volume, and shows recently-fired notifications:
+
+```sh
+~/Projects/tmux-agent-status/scripts/test-notification.sh
+```
+
+If you hear it there but not from agents, the tmux server started without an
+audio session — `tmux kill-server` and reopen.
+
 ## How detection works
 
 Claude Code renames its own process to its version string (e.g. `2.1.185`), so
