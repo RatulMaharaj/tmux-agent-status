@@ -75,7 +75,7 @@ This catches agents regardless of how tmux labels the pane.
 Add one line to `~/.tmux.conf`:
 
 ```tmux
-run-shell '/Users/ratulmaharaj/Projects/tmux-agent-status/agent-status.tmux'
+run-shell '~/Projects/tmux-agent-status/agent-status.tmux'
 ```
 
 Reload tmux:
